@@ -1,5 +1,9 @@
 {
   "dependencies": [
-    "openssl"
+    "openssl",
+    {
+      "name": "aws-sdk-cpp",
+      "features": [ "glue" , "s3"]
+    }
   ]
 }
