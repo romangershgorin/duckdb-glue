@@ -4,7 +4,7 @@
 
 namespace duckdb {
 
-class GlueReaderExtension : public Extension {
+class GlueExtension : public Extension {
 public:
 	void Load(DuckDB &db) override;
 	std::string Name() override;

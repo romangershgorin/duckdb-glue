@@ -1,6 +1,6 @@
 #define DUCKDB_EXTENSION_MAIN
 
-#include "glue_reader_extension.hpp"
+#include "glue_extension.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/string_util.hpp"
@@ -27,53 +27,12 @@ using namespace Aws;
 using namespace Aws::Auth;
 
 namespace duckdb {
-/*
-string CheckS3() {
-	Aws::SDKOptions options;
-	// Optionally change the log level for debugging.
-	//   options.loggingOptions.logLevel = Utils::Logging::LogLevel::Debug;
-	Aws::InitAPI(options); // Should only be called once.
-	std::stringstream ss;
-	int result = 0;
-	{
-		Aws::Client::ClientConfiguration clientConfig;
-		clientConfig.region = "eu-west-2";
-
-		// You don't normally have to test that you are authenticated. But the S3 service permits anonymous requests, thus the s3Client will return "success" and 0 buckets even if you are unauthenticated, which can be confusing to a new user.
-		auto provider = Aws::MakeShared<DefaultAWSCredentialsProviderChain>("alloc-tag");
-		auto creds = provider->GetAWSCredentials();
-		if (creds.IsEmpty()) {
-			ss << "Failed authentication" << std::endl;
-		}
-
-		Aws::S3::S3Client s3Client(clientConfig);
-		auto outcome = s3Client.ListBuckets();
-
-		if (!outcome.IsSuccess()) {
-			ss << "Failed with error: " << outcome.GetError() << std::endl;
-			result = 1;
-		} else {
-			ss << "Found " << outcome.GetResult().GetBuckets().size()
-					  << " buckets\n";
-			for (auto &bucket: outcome.GetResult().GetBuckets()) {
-				ss << bucket.GetName() << std::endl;
-			}
-		}
-	}
-
-	Aws::ShutdownAPI(options);
-
-	return ss.str();
-}
-*/
 
 std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::SDKOptions options;
 	Aws::InitAPI(options);
 	
 	std::string location;
-
-	//std::ofstream out("/Users/rgershgorin/gitlab/duckdb-dev/extension-template/log.txt");
 
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
@@ -105,8 +64,7 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	return location;
 }
 
-//select glue_reader('testdatabase', 'newnamestable');
-inline void GlueReaderScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
+inline void GlueScalarFun(DataChunk &args, ExpressionState &state, Vector &result) {
     auto &databaseName = args.data[0];
 	auto &tableName = args.data[1];
     BinaryExecutor::Execute<string_t, string_t, string_t>(
@@ -118,20 +76,20 @@ inline void GlueReaderScalarFun(DataChunk &args, ExpressionState &state, Vector 
 
 static void LoadInternal(DatabaseInstance &instance) {
     // Register a scalar function
-    auto glue_reader_scalar_function = ScalarFunction("glue_reader", {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::VARCHAR, GlueReaderScalarFun);
+    auto glue_reader_scalar_function = ScalarFunction("get_s3_location", {LogicalType::VARCHAR, LogicalType::VARCHAR}, LogicalType::VARCHAR, GlueScalarFun);
     ExtensionUtil::RegisterFunction(instance, glue_reader_scalar_function);
 }
 
-void GlueReaderExtension::Load(DuckDB &db) {
+void GlueExtension::Load(DuckDB &db) {
 	LoadInternal(*db.instance);
 }
-std::string GlueReaderExtension::Name() {
-	return "glue_reader";
+std::string GlueExtension::Name() {
+	return "glue";
 }
 
-std::string GlueReaderExtension::Version() const {
-#ifdef EXT_VERSION_GLUE_READER
-	return EXT_VERSION_GLUE_READER;
+std::string GlueExtension::Version() const {
+#ifdef EXT_VERSION_GLUE
+	return EXT_VERSION_GLUE;
 #else
 	return "";
 #endif
@@ -141,12 +99,12 @@ std::string GlueReaderExtension::Version() const {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void glue_reader_init(duckdb::DatabaseInstance &db) {
+DUCKDB_EXTENSION_API void glue_init(duckdb::DatabaseInstance &db) {
     duckdb::DuckDB db_wrapper(db);
-    db_wrapper.LoadExtension<duckdb::GlueReaderExtension>();
+    db_wrapper.LoadExtension<duckdb::GlueExtension>();
 }
 
-DUCKDB_EXTENSION_API const char *glue_reader_version() {
+DUCKDB_EXTENSION_API const char *glue_version() {
 	return duckdb::DuckDB::LibraryVersion();
 }
 }

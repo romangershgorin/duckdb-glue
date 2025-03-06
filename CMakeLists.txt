@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 
 # Set extension name here
-set(TARGET_NAME glue_reader)
+set(TARGET_NAME glue)
 
 set(VCPKG $ENV{VCPKG_ROOT})
 set(CMAKE_TOOLCHAIN_FILE ${VCPKG}/scripts/buildsystems/vcpkg.cmake)
@@ -20,7 +20,7 @@ project(${TARGET_NAME})
 include_directories(src/include)
 include_directories(${AWSSDK_INCLUDE_DIRS})
 
-set(EXTENSION_SOURCES src/glue_reader_extension.cpp)
+set(EXTENSION_SOURCES src/glue_extension.cpp)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
