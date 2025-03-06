@@ -3,7 +3,7 @@
     "openssl",
     {
       "name": "aws-sdk-cpp",
-      "features": [ "core", "glue" , "s3"]
+      "features": [ "glue" , "s3"]
     }
   ]
 }
