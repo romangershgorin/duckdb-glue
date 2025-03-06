@@ -73,7 +73,7 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	
 	std::string location;
 
-	std::ofstream out("/Users/rgershgorin/gitlab/duckdb-dev/extension-template/log.txt");
+	//std::ofstream out("/Users/rgershgorin/gitlab/duckdb-dev/extension-template/log.txt");
 
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
