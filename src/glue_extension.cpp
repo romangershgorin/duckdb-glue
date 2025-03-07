@@ -10,6 +10,7 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/glue/GlueClient.h>
 #include <aws/glue/model/GetTablesRequest.h>
@@ -18,15 +19,66 @@
 
 // OpenSSL linked through vcpkg
 #include <openssl/opensslv.h>
+#include <nlohmann/json.hpp>
 
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <filesystem>
 
 using namespace Aws;
 using namespace Aws::Auth;
 
 namespace duckdb {
+
+/*
+        class AWS_CORE_API AWSCredentialsProvider
+        {
+        public:
+            AWSCredentialsProvider() : m_lastLoadedMs(0)
+            {
+            }
+ 
+            virtual ~AWSCredentialsProvider() = default;
+ 
+            virtual AWSCredentials GetAWSCredentials() = 0;
+ 
+        protected:
+            virtual bool IsTimeToRefresh(long reloadFrequency);
+            virtual void Reload();
+            mutable Aws::Utils::Threading::ReaderWriterLock m_reloadLock;
+        private:
+            long long m_lastLoadedMs;
+        };
+
+		{
+*/
+
+class VaultCredentialsProvider : public AWSCredentialsProvider {
+public:
+	VaultCredentialsProvider(std::string domain, std::string account, std::string role) 
+		: m_vaultSecretFile("/var/run/secrets/" + domain + "/arn_aws_iam__" + account + "_role_" + role + ".json") {
+	}
+
+public:
+	AWSCredentials GetAWSCredentials() override {
+		if (!std::filesystem::exists(m_vaultSecretFile)) {
+			return AWSCredentials();
+		}
+
+		std::ifstream secretFile(m_vaultSecretFile);
+		nlohmann::json secret;
+		secretFile >> secret;
+
+		return AWSCredentials(
+			secret["access_key"],
+			secret["secret_key"],
+			secret["security_token"]
+		);
+	}
+private:
+	std::filesystem::path m_vaultSecretFile;
+};
 
 std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::SDKOptions options;
@@ -37,7 +89,8 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
 
-	Aws::Glue::GlueClient glueClient(clientConfig);
+	const auto credentialsProvider = std::make_unique<VaultCredentialsProvider>("aws", "123456789012", "glue_role");
+	Aws::Glue::GlueClient glueClient(*credentialsProvider, clientConfig);
 	Aws::Glue::Model::GetTablesRequest request;
 	request.SetDatabaseName(databaseName);
 
