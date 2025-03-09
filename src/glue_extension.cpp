@@ -10,6 +10,7 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/glue/GlueClient.h>
 #include <aws/glue/model/GetTablesRequest.h>
@@ -18,6 +19,7 @@
 
 // OpenSSL linked through vcpkg
 #include <openssl/opensslv.h>
+#include <nlohmann/json.hpp>
 
 #include <iostream>
 #include <sstream>
@@ -28,6 +30,48 @@ using namespace Aws::Auth;
 
 namespace duckdb {
 
+class VaultCredentialsProvider : public AWSCredentialsProvider {
+public:
+	VaultCredentialsProvider(std::string domain, std::string account, std::string role) 
+		: m_vaultSecretFile("/var/run/secrets/" + domain + "/arn_aws_iam__" + account + "_role_" + role + ".json")
+	{
+		m_credentials = RefreshCredentials();
+	}
+
+public:
+	AWSCredentials GetAWSCredentials() override {
+		Aws::Utils::Threading::ReaderLockGuard guard(m_reloadLock);
+		if (m_credentials.GetExpiration() < Aws::Utils::DateTime::Now()) {
+			guard.UpgradeToWriterLock();
+			m_credentials = RefreshCredentials();
+		}
+
+		return m_credentials;
+	}
+
+private:
+	AWSCredentials RefreshCredentials() {
+		std::ifstream secretFile(m_vaultSecretFile);
+		if (!secretFile.good()) {
+			throw std::runtime_error("Secret was not materialised the expected location: " + m_vaultSecretFile);
+		}
+
+		nlohmann::json secret;
+		secretFile >> secret;
+		return AWSCredentials(
+			secret["access_key"],
+			secret["secret_key"],
+			secret["session_token"],
+			Aws::Utils::DateTime(secret["expiration_time"], Aws::Utils::DateFormat::ISO_8601)
+		);
+	}
+
+private:
+	mutable Aws::Utils::Threading::ReaderWriterLock m_reloadLock;
+	Aws::Auth::AWSCredentials m_credentials;
+	std::string m_vaultSecretFile;
+};
+
 std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::SDKOptions options;
 	Aws::InitAPI(options);
@@ -37,7 +81,17 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
 
-	Aws::Glue::GlueClient glueClient(clientConfig);
+	char *domain = getenv("DOMAIN");
+	char *account = getenv("AWS_ACCOUNT");
+	char *role = getenv("AWS_ROLE");
+	if (domain == nullptr || account == nullptr || role == nullptr) {
+		throw std::runtime_error("Environment variables DOMAIN, AWS_ACCOUNT and AWS_ROLE must be set");
+	}
+	
+	const auto credentialsProvider = 
+		std::make_shared<VaultCredentialsProvider>(domain, account, role);
+
+	Aws::Glue::GlueClient glueClient(credentialsProvider, nullptr, clientConfig);
 	Aws::Glue::Model::GetTablesRequest request;
 	request.SetDatabaseName(databaseName);
 
@@ -48,14 +102,14 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 			for (const auto& table: outcome.GetResult().GetTableList()) {
 				if (table.GetName() == tableName) {
 					location = table.GetStorageDescriptor().GetLocation();
+					break;
 				}
 			}
 
 			nextToken = outcome.GetResult().GetNextToken();
 		}
 		else {
-			stringstream(location) << "Error getting the tables. " << outcome.GetError().GetMessage() << std::endl;
-			break;
+			throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
 		}
 	} while (!nextToken.empty());
 

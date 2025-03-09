@@ -1,6 +1,7 @@
 {
   "dependencies": [
     "openssl",
+    "nlohmann-json",
     {
       "name": "aws-sdk-cpp",
       "features": [ "glue" , "s3"]
