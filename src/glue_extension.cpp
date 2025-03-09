@@ -24,60 +24,52 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
-#include <filesystem>
 
 using namespace Aws;
 using namespace Aws::Auth;
 
 namespace duckdb {
 
-/*
-        class AWS_CORE_API AWSCredentialsProvider
-        {
-        public:
-            AWSCredentialsProvider() : m_lastLoadedMs(0)
-            {
-            }
- 
-            virtual ~AWSCredentialsProvider() = default;
- 
-            virtual AWSCredentials GetAWSCredentials() = 0;
- 
-        protected:
-            virtual bool IsTimeToRefresh(long reloadFrequency);
-            virtual void Reload();
-            mutable Aws::Utils::Threading::ReaderWriterLock m_reloadLock;
-        private:
-            long long m_lastLoadedMs;
-        };
-
-		{
-*/
-
 class VaultCredentialsProvider : public AWSCredentialsProvider {
 public:
 	VaultCredentialsProvider(std::string domain, std::string account, std::string role) 
-		: m_vaultSecretFile("/var/run/secrets/" + domain + "/arn_aws_iam__" + account + "_role_" + role + ".json") {
+		: m_vaultSecretFile("/var/run/secrets/" + domain + "/arn_aws_iam__" + account + "_role_" + role + ".json")
+	{
+		m_credentials = RefreshCredentials();
 	}
 
 public:
 	AWSCredentials GetAWSCredentials() override {
-		if (!std::filesystem::exists(m_vaultSecretFile)) {
+		Aws::Utils::Threading::ReaderLockGuard guard(m_reloadLock);
+		if (m_credentials.GetExpiration() < Aws::Utils::DateTime::Now()) {
+			guard.UpgradeToWriterLock();
+			m_credentials = RefreshCredentials();
+		}
+
+		return m_credentials;
+	}
+
+private:
+	AWSCredentials RefreshCredentials() {
+		std::ifstream secretFile(m_vaultSecretFile);
+		if (!secretFile.good()) {
 			return AWSCredentials();
 		}
 
-		std::ifstream secretFile(m_vaultSecretFile);
 		nlohmann::json secret;
 		secretFile >> secret;
-
 		return AWSCredentials(
 			secret["access_key"],
 			secret["secret_key"],
-			secret["security_token"]
+			secret["session_token"],
+			Aws::Utils::DateTime(secret["expiration_time"], Aws::Utils::DateFormat::ISO_8601)
 		);
 	}
+
 private:
-	std::filesystem::path m_vaultSecretFile;
+	mutable Aws::Utils::Threading::ReaderWriterLock m_reloadLock;
+	Aws::Auth::AWSCredentials m_credentials;
+	std::string m_vaultSecretFile;
 };
 
 std::string GetS3Path(std::string databaseName, std::string tableName) {
@@ -89,8 +81,8 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
 
-	const auto credentialsProvider = std::make_unique<VaultCredentialsProvider>("aws", "123456789012", "glue_role");
-	Aws::Glue::GlueClient glueClient(*credentialsProvider, clientConfig);
+	const auto credentialsProvider = std::make_shared<VaultCredentialsProvider>("aws", "123456789012", "glue_role");
+	Aws::Glue::GlueClient glueClient(credentialsProvider, nullptr, clientConfig);
 	Aws::Glue::Model::GetTablesRequest request;
 	request.SetDatabaseName(databaseName);
 
