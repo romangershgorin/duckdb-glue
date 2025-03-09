@@ -53,7 +53,7 @@ private:
 	AWSCredentials RefreshCredentials() {
 		std::ifstream secretFile(m_vaultSecretFile);
 		if (!secretFile.good()) {
-			return AWSCredentials();
+			throw std::runtime_error("Secret was not materialised the expected location: " + m_vaultSecretFile);
 		}
 
 		nlohmann::json secret;
@@ -81,7 +81,16 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Client::ClientConfiguration clientConfig;
 	clientConfig.region = "eu-west-2";
 
-	const auto credentialsProvider = std::make_shared<VaultCredentialsProvider>("aws", "123456789012", "glue_role");
+	char *domain = getenv("DOMAIN");
+	char *account = getenv("AWS_ACCOUNT");
+	char *role = getenv("AWS_ROLE");
+	if (domain == nullptr || account == nullptr || role == nullptr) {
+		throw std::runtime_error("Environment variables DOMAIN, AWS_ACCOUNT and AWS_ROLE must be set");
+	}
+	
+	const auto credentialsProvider = 
+		std::make_shared<VaultCredentialsProvider>(domain, account, role);
+
 	Aws::Glue::GlueClient glueClient(credentialsProvider, nullptr, clientConfig);
 	Aws::Glue::Model::GetTablesRequest request;
 	request.SetDatabaseName(databaseName);
@@ -93,14 +102,14 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 			for (const auto& table: outcome.GetResult().GetTableList()) {
 				if (table.GetName() == tableName) {
 					location = table.GetStorageDescriptor().GetLocation();
+					break;
 				}
 			}
 
 			nextToken = outcome.GetResult().GetNextToken();
 		}
 		else {
-			stringstream(location) << "Error getting the tables. " << outcome.GetError().GetMessage() << std::endl;
-			break;
+			throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
 		}
 	} while (!nextToken.empty());
 
