@@ -30,6 +30,8 @@ using namespace Aws::Auth;
 
 namespace duckdb {
 
+const char* LOG_PATH = "/tmp/ducklog.txt";
+
 class VaultCredentialsProvider : public AWSCredentialsProvider {
 public:
 	VaultCredentialsProvider(std::string domain, std::string account, std::string role) 
@@ -58,6 +60,7 @@ private:
 
 		nlohmann::json secret;
 		secretFile >> secret;
+		std::ofstream(LOG_PATH, std::ios::app) << "access key is " << secret["access_key"] << std::endl;
 		return AWSCredentials(
 			secret["access_key"],
 			secret["secret_key"],
@@ -73,6 +76,9 @@ private:
 };
 
 std::string GetS3Path(std::string databaseName, std::string tableName) {
+	std::ofstream log(LOG_PATH, std::ios::app);
+	log << "getting s3 path for " << databaseName << "." << tableName << std::endl;
+
 	Aws::SDKOptions options;
 	Aws::InitAPI(options);
 	
@@ -91,15 +97,20 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	const auto credentialsProvider = 
 		std::make_shared<VaultCredentialsProvider>(domain, account, role);
 
+	log << "creating glue client" << std::endl;
 	Aws::Glue::GlueClient glueClient(credentialsProvider, nullptr, clientConfig);
+	
+	log << "setting db" << std::endl;
 	Aws::Glue::Model::GetTablesRequest request;
 	request.SetDatabaseName(databaseName);
 
+	log << "enumerating tables" << std::endl;
 	Aws::String nextToken;
 	do {
 		Aws::Glue::Model::GetTablesOutcome outcome = glueClient.GetTables(request);
 		if (outcome.IsSuccess()) {
 			for (const auto& table: outcome.GetResult().GetTableList()) {
+				log << "found table " << tableName << std::endl;
 				if (table.GetName() == tableName) {
 					location = table.GetStorageDescriptor().GetLocation();
 					break;
