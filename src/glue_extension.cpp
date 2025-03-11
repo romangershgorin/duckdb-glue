@@ -90,8 +90,9 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	char *domain = getenv("DOMAIN");
 	char *account = getenv("AWS_ACCOUNT");
 	char *role = getenv("AWS_ROLE");
-	if (domain == nullptr || account == nullptr || role == nullptr) {
-		throw std::runtime_error("Environment variables DOMAIN, AWS_ACCOUNT and AWS_ROLE must be set");
+	char *catalogId = getenv("CATALOG_ID");
+	if (domain == nullptr || account == nullptr || role == nullptr || catalogId == nullptr) {
+		throw std::runtime_error("Environment variables DOMAIN, AWS_ACCOUNT, AWS_ROLE and CATALOG_ID must be set");
 	}
 	
 	const auto credentialsProvider = 
@@ -104,6 +105,7 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Glue::Model::GetTableRequest request;
 	request.SetDatabaseName(databaseName);
 	request.SetName(tableName);
+	request.SetCatalogId(catalogId);
 
 	Aws::Glue::Model::GetTableOutcome outcome = glueClient.GetTable(request);
 	if (outcome.IsSuccess()) {
@@ -112,26 +114,6 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	else {
 		throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
 	}
-/*
-	log << "enumerating tables" << std::endl;
-	Aws::String nextToken;
-	do {
-		Aws::Glue::Model::GetTableOutcome outcome = glueClient.GetTable(request);
-		if (outcome.IsSuccess()) {
-			for (const auto& table: outcome.GetResult().GetTableList()) {
-				log << "found table " << tableName << std::endl;
-				if (table.GetName() == tableName) {
-					location = table.GetStorageDescriptor().GetLocation();
-					break;
-				}
-			}
-
-			nextToken = outcome.GetResult().GetNextToken();
-		}
-		else {
-			throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
-		}
-	} while (!nextToken.empty());*/
 
 	Aws::ShutdownAPI(options);
 
