@@ -13,7 +13,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/auth/AWSCredentialsProviderChain.h>
 #include <aws/glue/GlueClient.h>
-#include <aws/glue/model/GetTablesRequest.h>
+#include <aws/glue/model/GetTableRequest.h>
 #include <aws/glue/model/Table.h>
 #include <aws/glue/model/StorageDescriptor.h>
 
@@ -101,13 +101,22 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 	Aws::Glue::GlueClient glueClient(credentialsProvider, nullptr, clientConfig);
 	
 	log << "setting db" << std::endl;
-	Aws::Glue::Model::GetTablesRequest request;
+	Aws::Glue::Model::GetTableRequest request;
 	request.SetDatabaseName(databaseName);
+	request.SetName(tableName);
 
+	Aws::Glue::Model::GetTableOutcome outcome = glueClient.GetTable(request);
+	if (outcome.IsSuccess()) {
+		location = outcome.GetResult().GetTable().GetStorageDescriptor().GetLocation();
+	}
+	else {
+		throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
+	}
+/*
 	log << "enumerating tables" << std::endl;
 	Aws::String nextToken;
 	do {
-		Aws::Glue::Model::GetTablesOutcome outcome = glueClient.GetTables(request);
+		Aws::Glue::Model::GetTableOutcome outcome = glueClient.GetTable(request);
 		if (outcome.IsSuccess()) {
 			for (const auto& table: outcome.GetResult().GetTableList()) {
 				log << "found table " << tableName << std::endl;
@@ -122,7 +131,7 @@ std::string GetS3Path(std::string databaseName, std::string tableName) {
 		else {
 			throw std::runtime_error("Error getting the tables. " + outcome.GetError().GetMessage());
 		}
-	} while (!nextToken.empty());
+	} while (!nextToken.empty());*/
 
 	Aws::ShutdownAPI(options);
 
